@@ -1,17 +1,18 @@
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.FormKeys.SkyrimSE;
+using Mutagen.Bethesda.Skyrim;
+using Mutagen.Bethesda.Synthesis;
+using Noggog;
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using Mutagen.Bethesda;
-using Mutagen.Bethesda.Synthesis;
-using Mutagen.Bethesda.Skyrim;
-using Noggog;
-using Mutagen.Bethesda.FormKeys.SkyrimSE;
 using System.Threading.Tasks;
 
 namespace NPCEnchantFix
 {
     public class Program
     {
+        static Lazy<PatcherSettings> Settings = null!;
+
         public static async Task<int> Main(string[] args)
         {
             return await SynthesisPipeline.Instance
@@ -20,8 +21,33 @@ namespace NPCEnchantFix
                 .Run(args);
         }
 
+        public class perkData
+        {
+            public IPerkGetter? Perk;
+            public int Rank = 1;
+        }
+
         public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
+            // Set data from Settings
+            Dictionary<FormKey, perkData> perksList = new();
+            Dictionary<string, int> perksEDIDRankList = new();
+            foreach (var data in Settings.Value.PerksToAdd)
+            {
+                if (data.Perk != null && !data.Perk.FormKey.IsNull && data.Perk.TryResolve(state.LinkCache, out var perk))
+                {
+                    perksList.TryAdd(perk.FormKey, new perkData() { Perk = perk, Rank = data.Rank });
+                }
+                else if (!string.IsNullOrWhiteSpace(data.EDID))
+                {
+                    perksEDIDRankList.TryAdd(data.EDID, data.Rank);
+                }
+            }
+
+            // search perks by EDID
+            foreach (var perk in state.LoadOrder.PriorityOrder.Perk().WinningOverrides())
+                if (perksEDIDRankList.ContainsKey(perk.EditorID + "")) perksList.TryAdd(perk.FormKey, new perkData() { Perk = perk, Rank = perksEDIDRankList[perk.EditorID!] });
+
             // Loop over all NPCs in the load order
             foreach (var npc in state.LoadOrder.PriorityOrder.Npc().WinningOverrides())
             {
@@ -30,19 +56,16 @@ namespace NPCEnchantFix
                     // Skip NPC if it inherits spells from its template
                     if (npc.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.SpellList)) continue;
 
-                    // Find if the NPC has PerkSkill or AlchemySkill perks
-                    var hasPerkSkillBoosts = false;
-                    var hasAlchemySkillBoosts = false;
-
-                    foreach (var perk in npc.Perks.EmptyIfNull())
+                    // Find if the NPC has perks
+                    foreach (var perkPlacementGetter in npc.Perks.EmptyIfNull())
                     {
-                        if (perk.Perk.Equals(Skyrim.Perk.AlchemySkillBoosts)) hasAlchemySkillBoosts = true;
-                        if (perk.Perk.Equals(Skyrim.Perk.PerkSkillBoosts)) hasPerkSkillBoosts = true;
-                        if (hasAlchemySkillBoosts && hasPerkSkillBoosts) break;
+                        if (!perksList.ContainsKey(perkPlacementGetter.Perk.FormKey)) continue;
+
+                        perksList.Remove(perkPlacementGetter.Perk.FormKey);
                     }
 
-                    // If NPC has both, it is safe
-                    if (hasAlchemySkillBoosts && hasPerkSkillBoosts) continue;
+                    // If NPC have all, skip
+                    if (perksList.Count == 0) continue;
 
                     // Otherwise, add the NPC to the patch
                     var modifiedNpc = state.PatchMod.Npcs.GetOrAddAsOverride(npc);
@@ -51,21 +74,12 @@ namespace NPCEnchantFix
                     modifiedNpc.Perks ??= new ExtendedList<PerkPlacement>();
 
                     // Add missing perks
-                    if (!hasAlchemySkillBoosts)
+                    foreach (var data in perksList.Values)
                     {
                         modifiedNpc.Perks.Add(new PerkPlacement()
                         {
-                            Perk = Skyrim.Perk.AlchemySkillBoosts,
-                            Rank = 1
-                        });
-                    }
-
-                    if (!hasPerkSkillBoosts)
-                    {
-                        modifiedNpc.Perks.Add(new PerkPlacement()
-                        {
-                            Perk = Skyrim.Perk.PerkSkillBoosts,
-                            Rank = 1
+                            Perk = data.Perk!.AsLink(),
+                            Rank = (byte)data.Rank
                         });
                     }
                 }
