@@ -1,5 +1,7 @@
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.FormKeys.SkyrimSE;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Exceptions;
 using Mutagen.Bethesda.Skyrim;
 using Mutagen.Bethesda.Synthesis;
 using Noggog;
@@ -35,7 +37,7 @@ namespace NPCEnchantFix
             Dictionary<string, int> perksEDIDRankList = new();
             foreach (var data in Settings.Value.PerksToAdd)
             {
-                if (data.Perk != null && !data.Perk.FormKey.IsNull && data.Perk.TryResolve(state.LinkCache, out var perk))
+                if (data.Perk!=null && !data.Perk.IsNull && data.Perk.TryResolve(state.LinkCache, out var perk))
                 {
                     perksList.TryAdd(perk.FormKey, new perkData() { Perk = perk, Rank = data.Rank });
                 }
@@ -86,7 +88,7 @@ namespace NPCEnchantFix
                 }
                 catch (Exception ex)
                 {
-                    throw RecordException.Factory(ex, npc);
+                    throw RecordException.Enrich(ex, npc);
                 }
             }
         }
