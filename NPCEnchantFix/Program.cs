@@ -81,7 +81,7 @@ namespace NPCEnchantFix
                     {
                         modifiedNpc.Perks.Add(new PerkPlacement()
                         {
-                            Perk = data.Perk!.AsLink(),
+                            Perk = data.Perk!.ToLink(),
                             Rank = (byte)data.Rank
                         });
                     }
