@@ -1,5 +1,4 @@
 using Mutagen.Bethesda;
-using Mutagen.Bethesda.FormKeys.SkyrimSE;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Exceptions;
 using Mutagen.Bethesda.Skyrim;
@@ -33,11 +32,12 @@ namespace NPCEnchantFix
         public static void RunPatch(IPatcherState<ISkyrimMod, ISkyrimModGetter> state)
         {
             // Set data from Settings
+            Console.WriteLine($"Get perks to add from settings..");
             Dictionary<FormKey, perkData> perksList = new();
             Dictionary<string, int> perksEDIDRankList = new();
             foreach (var data in Settings.Value.PerksToAdd)
             {
-                if (data.Perk!=null && !data.Perk.IsNull && data.Perk.TryResolve(state.LinkCache, out var perk))
+                if (data.Perk != null && !data.Perk.IsNull && data.Perk.TryResolve(state.LinkCache, out var perk))
                 {
                     perksList.TryAdd(perk.FormKey, new perkData() { Perk = perk, Rank = data.Rank });
                 }
@@ -52,6 +52,8 @@ namespace NPCEnchantFix
                 if (perksEDIDRankList.ContainsKey(perk.EditorID + "")) perksList.TryAdd(perk.FormKey, new perkData() { Perk = perk, Rank = perksEDIDRankList[perk.EditorID!] });
 
             // Loop over all NPCs in the load order
+            Console.WriteLine($"Add {perksList.Count} perks to npcs if missing...");
+            int patchedNpcsCount = 0;
             foreach (var npc in state.LoadOrder.PriorityOrder.Npc().WinningOverrides())
             {
                 try
@@ -59,25 +61,27 @@ namespace NPCEnchantFix
                     // Skip NPC if it inherits spells from its template
                     if (npc.Configuration.TemplateFlags.HasFlag(NpcConfiguration.TemplateFlag.SpellList)) continue;
 
+                    var perksListToAdd = new Dictionary<FormKey, perkData>(perksList);
                     // Find if the NPC has perks
                     foreach (var perkPlacementGetter in npc.Perks.EmptyIfNull())
                     {
-                        if (!perksList.ContainsKey(perkPlacementGetter.Perk.FormKey)) continue;
+                        if (!perksListToAdd.ContainsKey(perkPlacementGetter.Perk.FormKey)) continue;
 
-                        perksList.Remove(perkPlacementGetter.Perk.FormKey);
+                        perksListToAdd.Remove(perkPlacementGetter.Perk.FormKey);
                     }
 
                     // If NPC have all, skip
-                    if (perksList.Count == 0) continue;
+                    if (perksListToAdd.Count == 0) continue;
 
                     // Otherwise, add the NPC to the patch
                     var modifiedNpc = state.PatchMod.Npcs.GetOrAddAsOverride(npc);
 
+                    patchedNpcsCount++;
                     // Ensure perk list exists
                     modifiedNpc.Perks ??= new ExtendedList<PerkPlacement>();
 
                     // Add missing perks
-                    foreach (var data in perksList.Values)
+                    foreach (var data in perksListToAdd.Values)
                     {
                         modifiedNpc.Perks.Add(new PerkPlacement()
                         {
@@ -91,6 +95,8 @@ namespace NPCEnchantFix
                     throw RecordException.Enrich(ex, npc);
                 }
             }
+
+            Console.WriteLine($"Patched {patchedNpcsCount} npcs!");
         }
     }
 }
